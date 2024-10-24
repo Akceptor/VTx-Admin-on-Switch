@@ -20,7 +20,8 @@ bool HTEnableFlagReadyToSend = false;
 bool BackpackTelemReadyToSend = false;
 
 bool lastRecordingState = false;
-uint8_t lastSwitchState = 8;
+uint8_t lastVtxBandState = 4;
+uint8_t lastVtxChannelState = 8;
 
 #if defined(GPIO_PIN_BACKPACK_EN)
 
@@ -224,6 +225,57 @@ uint8_t GetDvrDelaySeconds(uint8_t index)
     return delays[index >= sizeof(delays) ? 0 : index];
 }
 
+// TODO we'll need proper mappings later
+// Maps AUX Switch position to corresponding VTx band
+int getMappedBand(int input) {
+    //-------------------------------
+    //| OFF | A | B | E | F | R | L |
+    //|  0  | 1 | 2 | 3 | 4 | 5 | 6 |
+    //-------------------------------
+    // For 3-pos it is 0-1-2 so by default A, B, E
+    switch (input) {
+        case 0:
+            return 1; //A
+        case 1:
+            return 3; //E
+        case 2:
+            return 5; //R
+        case 3:
+            return 3;
+        case 4:
+            return 4;
+        case 5:
+            return 5; 
+        case 6:
+            return 6;
+        default:
+            return 0; // Return 0 for unknown inputs
+    }
+}
+
+// TODO we'll need proper mappings later
+// Maps AUX Switch position to corresponding VTx channel
+int getMappedChannel(int input) {
+       switch (input) {
+        case 0:
+            return 0; //Ch1
+        case 1:
+            return 1; //Ch2
+        case 2:
+            return 2; //Ch3
+        case 3:
+            return 3;
+        case 4:
+            return 4;
+        case 5:
+            return 5;
+        case 6:
+            return 6;
+        default:
+            return 0;  // Return 0 for unknown inputs
+       }
+}
+
 static void AuxStateToMSPOut()
 {
 #if defined(USE_TX_BACKPACK)
@@ -253,13 +305,16 @@ static void AuxStateToMSPOut()
         }
     }
 
-    // VTX Channel
-    const uint8_t vtxAuxNumber = (config.GetPTREnableChannel() - 1) / 2 + 4;
-    const uint8_t switchState = CRSF_to_SWITCH3b(ChannelData[vtxAuxNumber]);
-    if (switchState != lastSwitchState)
+    // VTX Band\Channel
+    const uint8_t vtxBandAux = (config.GetVtxBandAux() - 1) + 4;
+    const uint8_t vtxChannelAux = (config.GetVtxChannelAux() - 1) + 4;
+    const uint8_t bandState = getMappedBand(CRSF_to_N(ChannelData[vtxBandAux], 3)); //3-pos, bands, 0=no band
+    const uint8_t channelState = getMappedChannel(CRSF_to_N(ChannelData[vtxChannelAux], 6)); //6-pos, channels
+    if (bandState != lastVtxBandState || channelState != lastVtxChannelState)
     {
-        lastSwitchState = switchState;
-        uint8_t vtxIdx = (config.GetVtxBand()-1) * 8 + switchState; // Channels 1 to 6 supported only
+        lastVtxBandState = bandState;
+        lastVtxChannelState = channelState;
+        uint8_t vtxIdx = (bandState-1) * 8 + channelState; // Channels 1 to 6 supported only
 
         mspPacket_t packet;
         packet.reset();
@@ -271,7 +326,6 @@ static void AuxStateToMSPOut()
         CRSF::AddMspMessage(&packet, CRSF_ADDRESS_FLIGHT_CONTROLLER);
         MSP::sendPacket(&packet, TxBackpack); // send to tx-backpack as MSP
     }
-
 #endif // USE_TX_BACKPACK
 }
 
